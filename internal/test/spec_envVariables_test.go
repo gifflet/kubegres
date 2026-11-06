@@ -50,6 +50,22 @@ var _ = Describe("Setting Kubegres spec 'env.*'", func() {
 		test.resourceCreator.DeleteAllTestResources()
 	})
 
+	Context("GIVEN new Kubegres is created with environment variable 'PGDATA' set to a custom value", func() {
+
+		It("THEN an error event should be logged saying 'PGDATA' is reserved for Kubegres internal usages", func() {
+
+			log.Print("START OF: Test 'GIVEN new Kubegres is created with environment variable 'PGDATA' set to a custom value'")
+
+			test.givenNewKubegresWithAllEnvVarsSetAndPgDataSetTo("/var/lib/postgresql/18/docker", 1)
+
+			test.whenKubegresIsCreated()
+
+			test.thenErrorEventShouldBeLoggedSayingPgDataIsReserved()
+
+			log.Print("END OF: Test 'GIVEN new Kubegres is created with environment variable 'PGDATA' set to a custom value'")
+		})
+	})
+
 	Context("GIVEN new Kubegres is created without environment variable of postgres super-user password", func() {
 
 		It("THEN an error event should be logged saying the super-user password is missing", func() {
@@ -166,6 +182,11 @@ func (r *SpecEnVariablesTest) givenNewKubegresWithAllEnvVarsSetAndACustomOne(spe
 	r.resourceModifier.AppendEnvVarFromSecretKey(r.customEnvVariableName, r.customEnvVariableKey, r.kubegresResource)
 }
 
+func (r *SpecEnVariablesTest) givenNewKubegresWithAllEnvVarsSetAndPgDataSetTo(pgData string, specNbreReplicas int32) {
+	r.givenNewKubegresWithAllEnvVarsSet(specNbreReplicas)
+	r.resourceModifier.AppendEnvVar(ctx.EnvVarNamePgData, pgData, r.kubegresResource)
+}
+
 func (r *SpecEnVariablesTest) whenKubegresIsCreated() {
 	r.resourceCreator.CreateKubegres(r.kubegresResource)
 }
@@ -228,6 +249,25 @@ func (r *SpecEnVariablesTest) doesEnvVarExist(envVarName string, envVars []v12.E
 		}
 	}
 	return false
+}
+
+func (r *SpecEnVariablesTest) thenErrorEventShouldBeLoggedSayingPgDataIsReserved() {
+	expectedPgData := r.kubegresResource.Spec.Database.VolumeMount + "/" + ctx.DefaultDatabaseFolder
+	expectedErrorEvent := util2.EventRecord{
+		Eventtype: v12.EventTypeWarning,
+		Reason:    "SpecCheckErr",
+		Message: "In the Resources Spec the value of 'spec.env' has an entry '" + ctx.EnvVarNamePgData + "' which is reserved " +
+			"for Kubegres internal usages. Kubegres sets it to '" + expectedPgData + "' in Primary and Replica Pods, " +
+			"and a different value would make Primary and Replica use different database folders. Please remove that entry from the YAML.",
+	}
+	Eventually(func() bool {
+		_, err := r.resourceRetriever.GetKubegres()
+		if err != nil {
+			return false
+		}
+		return eventRecorderTest.CheckEventExist(expectedErrorEvent)
+
+	}, resourceConfigs2.TestTimeout, resourceConfigs2.TestRetryInterval).Should(BeTrue())
 }
 
 func (r *SpecEnVariablesTest) thenErrorEventShouldBeLogged(specName string) {

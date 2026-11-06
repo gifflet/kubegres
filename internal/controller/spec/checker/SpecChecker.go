@@ -147,6 +147,14 @@ func (r *SpecChecker) CheckSpec() (SpecCheckResult, error) {
 		specCheckResult.FatalErrorMessage = r.createErrMsgSpecUndefined("spec.env.POSTGRES_REPLICATION_PASSWORD")
 	}
 
+	if r.isEnvVarPgDataOverridden() {
+		specCheckResult.HasSpecFatalError = true
+		specCheckResult.FatalErrorMessage = r.logSpecErrMsg("In the Resources Spec the value of 'spec.env' has an entry " +
+			"'" + ctx.EnvVarNamePgData + "' which is reserved for Kubegres internal usages. Kubegres sets it to '" +
+			spec.Database.VolumeMount + "/" + ctx.DefaultDatabaseFolder + "' in Primary and Replica Pods, " +
+			"and a different value would make Primary and Replica use different database folders. Please remove that entry from the YAML.")
+	}
+
 	if *spec.Replicas <= 0 {
 		specCheckResult.HasSpecFatalError = true
 		specCheckResult.FatalErrorMessage = r.createErrMsgSpecUndefined("spec.replicas")
@@ -257,6 +265,18 @@ func (r *SpecChecker) logSpecErrMsg(errorMsg string) string {
 func (r *SpecChecker) doesEnvVarExist(envName string) bool {
 	for _, envVar := range r.kubegresContext.Kubegres.Spec.Env {
 		if envVar.Name == envName {
+			return true
+		}
+	}
+	return false
+}
+
+// Since PostgreSql 18, the official image aborts when PGDATA is not consistent with the data folder.
+// Kubegres sets PGDATA itself in Primary and Replica Pods, so a custom value in 'spec.env' is not allowed.
+func (r *SpecChecker) isEnvVarPgDataOverridden() bool {
+	expectedPgData := r.kubegresContext.Kubegres.Spec.Database.VolumeMount + "/" + ctx.DefaultDatabaseFolder
+	for _, envVar := range r.kubegresContext.Kubegres.Spec.Env {
+		if envVar.Name == ctx.EnvVarNamePgData && envVar.Value != expectedPgData {
 			return true
 		}
 	}
