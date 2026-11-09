@@ -32,7 +32,7 @@ const (
 	DbPassword             = "postgresSuperUserPsw"
 	DbName                 = "postgres"
 	TableName              = "account"
-	DbHost                 = "172.18.0.3"
+	DbHost                 = "127.0.0.1"
 
 	KubegresYamlFile     = "resourceConfigs/kubegres.yaml"
 	KubegresResourceName = "my-kubegres"
