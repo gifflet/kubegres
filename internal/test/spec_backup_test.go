@@ -172,6 +172,25 @@ var _ = Describe("Setting Kubegres specs 'backup.*'", func() {
 		})
 	})
 
+	Context("GIVEN new Kubegres is created with backup specs AND spec 'imagePullSecrets'", func() {
+
+		It("THEN the backup CronJob should have the imagePullSecrets", func() {
+
+			log.Print("START OF: Test 'GIVEN new Kubegres is created with backup specs AND spec 'imagePullSecrets'")
+
+			test.givenNewKubegresSpecIsSetTo(ctx.BaseConfigMapName, scheduleBackupEveryMin, resourceConfigs2.BackUpPvcResourceName, "/tmp/my-kubegres", 1)
+			test.givenKubegresImagePullSecretIsSetTo("my-registry-secret")
+
+			test.whenKubegresIsCreated()
+
+			test.thenPodsStatesShouldBe(1, 0)
+			test.thenCronJobExistsWithSpec(ctx.BaseConfigMapName, scheduleBackupEveryMin, resourceConfigs2.BackUpPvcResourceName, "/tmp/my-kubegres")
+			test.thenCronJobSpecShouldHaveImagePullSecret("my-registry-secret")
+
+			log.Print("END OF: Test 'GIVEN new Kubegres is created with backup specs AND spec 'imagePullSecrets'")
+		})
+	})
+
 	Context("GIVEN new Kubegres is created with backup specs set AND later Kubegres is updated with new values for backup specs", func() {
 
 		It("THEN backup CronJob is updated with the new backup specs", func() {
@@ -288,6 +307,10 @@ func (r *SpecBackUpTest) givenKubegresEnvVarIsSetTo(envVarName, envVarVal string
 	r.resourceModifier.AppendEnvVar(envVarName, envVarVal, r.kubegresResource)
 }
 
+func (r *SpecBackUpTest) givenKubegresImagePullSecretIsSetTo(secretName string) {
+	r.kubegresResource.Spec.ImagePullSecrets = append(r.kubegresResource.Spec.ImagePullSecrets, v12.LocalObjectReference{Name: secretName})
+}
+
 func (r *SpecBackUpTest) givenKubegresAnnotationIsSetTo(annotationKey, annotationValue string) {
 	r.resourceModifier.AppendAnnotation(annotationKey, annotationValue, r.kubegresResource)
 }
@@ -386,6 +409,27 @@ func (r *SpecBackUpTest) thenBackupCronJobDoesNOTExist() bool {
 		return true
 
 	}, time.Second*10, time.Second*5).Should(BeTrue())
+}
+
+func (r *SpecBackUpTest) thenCronJobSpecShouldHaveImagePullSecret(expectedSecretName string) bool {
+	return Eventually(func() bool {
+		kubegresResources, err := r.resourceRetriever.GetKubegresResources()
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Println("ERROR while retrieving Kubegres kubegresResources")
+			return false
+		}
+		backUpCronJob := kubegresResources.BackUpCronJob
+		if backUpCronJob.Name == "" {
+			return false
+		}
+		for _, imagePullSecret := range backUpCronJob.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets {
+			if imagePullSecret.Name == expectedSecretName {
+				return true
+			}
+		}
+		log.Println("CronJob '" + backUpCronJob.Name + "' doesn't have the expected imagePullSecret: '" + expectedSecretName + "'. Waiting...")
+		return false
+	}, resourceConfigs2.TestTimeout, resourceConfigs2.TestRetryInterval).Should(BeTrue())
 }
 
 func (r *SpecBackUpTest) thenCronJobExistsWithSpec(expectedConfigMapName,
