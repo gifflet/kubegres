@@ -29,6 +29,8 @@ import (
 	"reactive-tech.io/kubegres/internal/controller/states"
 	"reactive-tech.io/kubegres/internal/controller/states/statefulset"
 	"reflect"
+	"strconv"
+	"strings"
 )
 
 type SpecChecker struct {
@@ -53,6 +55,26 @@ func (r *SpecChecker) CheckSpec() (SpecCheckResult, error) {
 	primaryStatefulSet := r.getPrimaryStatefulSet()
 	primaryStatefulSetSpec := primaryStatefulSet.StatefulSet.Spec
 	const emptyStr = ""
+
+	// Checked whenever the Primary StatefulSet exists, not only when its Pod is ready: a Pod which is
+	// momentarily not ready must not let a new major version reach the StatefulSet.
+	if primaryStatefulSet.IsDeployed && len(primaryStatefulSetSpec.Template.Spec.Containers) > 0 {
+
+		primaryImage := primaryStatefulSetSpec.Template.Spec.Containers[0].Image
+		if r.isPostgresMajorVersionDifferent(primaryImage, spec.Image) {
+
+			specCheckResult.HasSpecFatalError = true
+			specCheckResult.FatalErrorMessage = r.createErrMsgSpecCannotBeChanged("spec.image",
+				primaryImage, spec.Image,
+				"The new image has a different PostgreSql major version. PostgreSql cannot open the data files of "+
+					"another major version, so the Pods would crash with 'database files are incompatible with server'. "+
+					"To upgrade to a new major version, create a new Kubegres resource and migrate the data with pg_dumpall.")
+
+			r.kubegresContext.Kubegres.Spec.Image = primaryImage
+			r.updateKubegresSpec("spec.image", primaryImage)
+			return specCheckResult, nil
+		}
+	}
 
 	if primaryStatefulSet.Pod.IsReady {
 
@@ -281,6 +303,37 @@ func (r *SpecChecker) isEnvVarPgDataOverridden() bool {
 		}
 	}
 	return false
+}
+
+// The data files of a PostgreSql major version cannot be opened by another major version, so a change of major
+// version through 'spec.image' would crash the Pods. The major version is read from the image tag
+// (e.g. 'postgres:17.2' -> 17, 'postgres:13-alpine' -> 13). When a tag has no numeric major version
+// (e.g. 'postgres:latest'), the check is skipped.
+func (r *SpecChecker) isPostgresMajorVersionDifferent(currentImage, newImage string) bool {
+	currentMajor, currentOk := postgresMajorVersionFromImage(currentImage)
+	newMajor, newOk := postgresMajorVersionFromImage(newImage)
+	return currentOk && newOk && currentMajor != newMajor
+}
+
+func postgresMajorVersionFromImage(image string) (int, bool) {
+	image = strings.SplitN(image, "@", 2)[0]
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon < 0 || lastColon < strings.LastIndex(image, "/") {
+		return 0, false
+	}
+	tag := image[lastColon+1:]
+	digits := ""
+	for _, c := range tag {
+		if c < '0' || c > '9' {
+			break
+		}
+		digits += string(c)
+	}
+	if digits == "" {
+		return 0, false
+	}
+	major, err := strconv.Atoi(digits)
+	return major, err == nil
 }
 
 func (r *SpecChecker) getPrimaryStatefulSet() statefulset.StatefulSetWrapper {

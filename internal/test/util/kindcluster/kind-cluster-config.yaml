@@ -3,12 +3,26 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    # NodePorts used by the acceptance tests to query the databases through 127.0.0.1:
+    # 30007/30008 (default resource), 30009/30010 (second resource) and 30011/30012 (custom namespace)
     extraPortMappings:
       - containerPort: 30007
         hostPort: 30007
         protocol: TCP
       - containerPort: 30008
         hostPort: 30008
+        protocol: TCP
+      - containerPort: 30009
+        hostPort: 30009
+        protocol: TCP
+      - containerPort: 30010
+        hostPort: 30010
+        protocol: TCP
+      - containerPort: 30011
+        hostPort: 30011
+        protocol: TCP
+      - containerPort: 30012
+        hostPort: 30012
         protocol: TCP
   - role: worker
   - role: worker

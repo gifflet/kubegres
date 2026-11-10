@@ -145,7 +145,7 @@ func (r *PrimaryDbCountSpecEnforcer) deployNewPrimaryStatefulSet() error {
 	instanceIndex := r.getInstanceIndexIfPrimaryNeedsToBeRecreatedAndThereIsNoReplicaSetUp()
 
 	if instanceIndex == 0 {
-		instanceIndex = r.kubegresContext.Status.GetLastCreatedInstanceIndex() + 1
+		instanceIndex = nextInstanceIndex(r.kubegresContext.Status.GetLastCreatedInstanceIndex(), r.resourcesStates.StatefulSets.All.GetAllSortedByInstanceIndex())
 	}
 
 	if err := r.activateBlockingOperation(instanceIndex); err != nil {

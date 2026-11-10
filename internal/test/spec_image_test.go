@@ -70,6 +70,27 @@ var _ = Describe("Setting Kubegres spec 'image'", func() {
 		})
 	})
 
+	Context("GIVEN existing Kubegres is updated with spec 'image' set to a different PostgreSql major version", func() {
+
+		It("THEN an error event should be logged AND the spec 'image' should be rolled back AND the Pods should keep the current image", func() {
+
+			log.Print("START OF: Test 'GIVEN existing Kubegres is updated with spec 'image' set to a different PostgreSql major version'")
+
+			test.givenNewKubegresSpecIsSetTo("postgres:17.2", 1)
+			test.whenKubegresIsCreated()
+			test.thenPodsStatesShouldBe("postgres:17.2", 1, 0)
+
+			test.givenExistingKubegresSpecIsSetTo("postgres:18.6")
+			test.whenKubernetesIsUpdated()
+
+			test.thenErrorEventShouldBeLoggedAboutMajorVersion("postgres:17.2", "postgres:18.6")
+			test.thenDeployedKubegresSpecShouldEventuallyBeSetTo("postgres:17.2")
+			test.thenPodsStatesShouldBe("postgres:17.2", 1, 0)
+
+			log.Print("END OF: Test 'GIVEN existing Kubegres is updated with spec 'image' set to a different PostgreSql major version'")
+		})
+	})
+
 	Context("GIVEN new Kubegres is created with spec 'image' set to 'postgres:17.0' and spec 'replica' set to 3 and later 'image' is updated to 'postgres:17.2'", func() {
 
 		It("GIVEN new Kubegres is created with spec 'image' set to 'postgres:17.0' and spec 'replica' set to 3 THEN 1 primary and 2 replica should be created with spec 'image' set to 'postgres:17.2'", func() {
@@ -120,6 +141,36 @@ type SpecImageTest struct {
 	dbQueryTestCases                testcases.DbQueryTestCases
 	resourceCreator                 util2.TestResourceCreator
 	resourceRetriever               util2.TestResourceRetriever
+}
+
+func (r *SpecImageTest) thenErrorEventShouldBeLoggedAboutMajorVersion(currentImage, newImage string) {
+	expectedErrorEvent := util2.EventRecord{
+		Eventtype: v12.EventTypeWarning,
+		Reason:    "SpecCheckErr",
+		Message: "In the Resources Spec the value of 'spec.image' cannot be changed from '" + currentImage + "' to '" + newImage + "' after Pods were created. " +
+			"The new image has a different PostgreSql major version. PostgreSql cannot open the data files of " +
+			"another major version, so the Pods would crash with 'database files are incompatible with server'. " +
+			"To upgrade to a new major version, create a new Kubegres resource and migrate the data with pg_dumpall. " +
+			"We roll-backed Kubegres spec to the currently working value '" + currentImage + "'. " +
+			"If you know what you are doing, you can manually update that spec in every StatefulSet of your PostgreSql cluster and then Kubegres will automatically update itself.",
+	}
+	Eventually(func() bool {
+		_, err := r.resourceRetriever.GetKubegres()
+		if err != nil {
+			return false
+		}
+		return eventRecorderTest.CheckEventExist(expectedErrorEvent)
+	}, resourceConfigs2.TestTimeout, resourceConfigs2.TestRetryInterval).Should(BeTrue())
+}
+
+func (r *SpecImageTest) thenDeployedKubegresSpecShouldEventuallyBeSetTo(image string) {
+	Eventually(func() bool {
+		kubegres, err := r.resourceRetriever.GetKubegres()
+		if err != nil {
+			return false
+		}
+		return kubegres.Spec.Image == image
+	}, resourceConfigs2.TestTimeout, resourceConfigs2.TestRetryInterval).Should(BeTrue())
 }
 
 func (r *SpecImageTest) givenNewKubegresSpecIsSetTo(image string, specNbreReplicas int32) {

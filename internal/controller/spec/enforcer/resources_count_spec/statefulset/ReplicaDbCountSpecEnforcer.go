@@ -241,7 +241,7 @@ func (r *ReplicaDbCountSpecEnforcer) isReplicaDbUndeployed(operation postgresV1.
 
 func (r *ReplicaDbCountSpecEnforcer) deployReplicaStatefulSet() error {
 
-	instanceIndex := r.kubegresContext.Status.GetLastCreatedInstanceIndex() + 1
+	instanceIndex := nextInstanceIndex(r.kubegresContext.Status.GetLastCreatedInstanceIndex(), r.resourcesStates.StatefulSets.All.GetAllSortedByInstanceIndex())
 
 	err := r.activateBlockingOperationForDeployment(instanceIndex)
 	if err != nil {
